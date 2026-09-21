@@ -35,7 +35,7 @@ def search_documents(request: SearchRequest):
         "results": [
             {
                 "content": result.content,
-                "content": result.content,
+                "source_file": result.source_file,
                 } for result in results
                 ],
         

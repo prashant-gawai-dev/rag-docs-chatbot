@@ -1,6 +1,4 @@
-from unittest import result
 import ollama
-from sqlalchemy.orm import query
 from search import search
 
 def generate_answer(question: str, top_k: int = 5) -> dict:
