@@ -16,4 +16,3 @@ if DATABASE_URL:
     SessionLocal = sessionmaker(
         autocommit=False, autoflush=False, bind=engine
     )  # how Fast api will open and close individual DB conversations per request
-

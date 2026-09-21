@@ -7,4 +7,4 @@ class DocumentChunk(Base):
    id = Column(Integer, primary_key=True, index=True)
    source_file = Column(String)
    content = Column(Text)
-   embedding = Column(Vector(1536))	
+   embedding = Column(Vector(384))	

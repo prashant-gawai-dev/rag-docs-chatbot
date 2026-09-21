@@ -14,16 +14,16 @@ def ingest_file(filepath: str, db):
         print(f"{filepath} already ingested, skipping..")
         return
 
-    with open(filepath, "r") as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         text = f.read()
 
     chunks = chunk_text(text)
 
     for chunk in chunks:
-        new_chuncks = DocumentChunkModel(
+        new_chunks = DocumentChunkModel(
             source_file=filepath, content=chunk, embedding=None
         )
-        db.add(new_chuncks)
+        db.add(new_chunks)
     db.commit()
     print(f"Ingested {len(chunks)} chunks from {filepath}")
 
