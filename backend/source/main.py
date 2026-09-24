@@ -1,14 +1,31 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import logging_config
+import logging
 from sqlalchemy.orm import query
 from search import search
 from chat import generate_answer
+
+from fastapi.middleware.cors import CORSMiddleware
+
+
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="RAG Documents Chatbot",
     description="RAG API using FastAPI, PostgreSQL, pgvector and Ollama",
     version="1.0.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class SearchRequest(BaseModel):
     query: str
@@ -38,11 +55,11 @@ def search_documents(request: SearchRequest):
                 "source_file": result.source_file,
                 } for result in results
                 ],
-        
         }
 
 @app.post("/chat")
 def chat_documents(request : ChatRequest):
+    logger.info("main/ Question received in chat function")
     return generate_answer(
         question=request.query,
         top_k=request.top_k
