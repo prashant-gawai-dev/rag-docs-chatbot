@@ -77,7 +77,7 @@ pip freeze > requirements.txt
 pip install -r requirements.txt --no-cache-dir
 
 # Run the dev server
-uvicorn main:app --reload
+uvicorn --app-dir backend/source api.main:app --reload
 # --reload = auto-restart on code changes (development only — never use in production)
 ```
 
@@ -169,7 +169,7 @@ COPY requirements.txt .        # copy dependency list FIRST — enables Docker l
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .                       # copy the rest of the code AFTER deps are installed
 EXPOSE 8000                    # documents which port the app uses (doesn't open it by itself)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # --host 0.0.0.0 is REQUIRED — 127.0.0.1 inside a container is invisible from outside it
 ```
 

@@ -1,0 +1,49 @@
+const sendMessage = async () => {
+  if (!message.trim()) return;
+
+  const userMessage = message;
+
+  setMessages([
+    ...messages,
+    {
+      text: userMessage,
+      sender: "user",
+    },
+  ]);
+
+  setMessage("");
+
+  try {
+    const response = await fetch("http://127.0.0.1:8000/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: userMessage,
+        top_k: 5,
+      }),
+    });
+
+    const data = await response.json();
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        text: data.answer,
+        sender: "bot",
+      },
+    ]);
+
+  } catch (error) {
+    console.error(error);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        text: "Sorry, something went wrong.",
+        sender: "bot",
+      },
+    ]);
+  }
+};

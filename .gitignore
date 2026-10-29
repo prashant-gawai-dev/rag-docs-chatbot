@@ -1,4 +1,10 @@
 .env
+.env.*
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.log
+.DS_Store
+backend/**/.DS_Store
+frontend/dist/

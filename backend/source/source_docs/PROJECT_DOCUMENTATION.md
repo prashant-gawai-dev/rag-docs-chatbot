@@ -226,7 +226,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from database import Base
-from main import app, get_db
+from api.main import app, get_db
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
@@ -353,7 +353,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 | Line | Explanation |
@@ -501,7 +501,7 @@ Think about the failure paths too, not just the happy path — what should happe
 ## Step 4 — Test locally, both ways, before pushing anything
 ```bash
 # Real app still works
-uvicorn main:app --reload
+uvicorn --app-dir backend/source api.main:app --reload
 curl http://127.0.0.1:8000/
 
 # Full test suite passes
