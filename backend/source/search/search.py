@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-
 def validate_table_name(table_name: str) -> str:
     if not TABLE_NAME_PATTERN.fullmatch(table_name):
         raise ValueError("Invalid PostgreSQL table name")
@@ -28,10 +27,11 @@ def search(query: str, top_k: int = 5, table_name: str | None = None):
     query_embedding = embedding_model.encode(query, normalize_embeddings=True).tolist()
 
     statement = text(f"""
-        SELECT source_file, section, content
+        SELECT source_file, section, content,
+               embedding <=> CAST(:embedding AS vector) AS distance
         FROM {quoted_table}
         WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> CAST(:embedding AS vector)
+        ORDER BY distance
         LIMIT :top_k
     """)
 

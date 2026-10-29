@@ -1,19 +1,94 @@
-import logging
+import json
 import re
 
 import ollama
 
 from search.search import search
 
-logger = logging.getLogger(__name__)
-
 MODEL_NAME = "llama3.2:3b"
+MAX_RELEVANT_DISTANCE = 0.55
+INSUFFICIENT_ANSWER = (
+    "I could not find enough relevant information in the provided "
+    "documentation to answer this accurately."
+)
 
 
 def result_value(result, key: str, default=""):
     if isinstance(result, dict):
         return result.get(key, default)
     return getattr(result, key, default)
+
+
+def is_settlement_period_question(question: str) -> bool:
+    question = question.lower()
+    return "settlement" in question and any(
+        term in question
+        for term in ("period", "timeline", "take", "days", "when", "long")
+    )
+
+
+def has_settlement_period_evidence(contents: list[str]) -> bool:
+    evidence = " ".join(contents).lower()
+    if "settlement" not in evidence:
+        return False
+    return bool(re.search(
+        r"(?:\bt\s*[+-]\s*\d+\b|\b\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b|\bwithin\s+\d+\s*(?:business\s+)?(?:day|days|week|weeks|month|months)\b)",
+        evidence,
+    ))
+
+
+def evidence_supports_answer(question: str, context: str) -> bool:
+    stop_words = {
+        "about", "after", "again", "being", "cannot", "could", "from", "their",
+        "there", "these", "those", "while", "with", "without", "what", "when",
+        "where", "which", "would", "should", "attempting", "customer", "documentation",
+        "provided", "payment", "answer",
+    }
+    question_words = {
+        word for word in re.findall(r"[a-z0-9]+", question.lower())
+        if len(word) >= 4 and word not in stop_words
+    }
+    evidence_words = set(re.findall(r"[a-z0-9]+", context.lower()))
+    matching_terms = question_words.intersection(evidence_words)
+
+    if len(matching_terms) >= 3:
+        return True
+
+    try:
+        response = ollama.chat(
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You verify whether retrieved evidence is sufficient to answer a question. "
+                        "Output only JSON with this shape: {\"sufficient\": true|false}. "
+                        "Return false when evidence is about a related topic but does not answer the question. "
+                        "Do not infer numbers, timelines, causes, or policies that are not stated."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question:\n{question}\n\n"
+                        f"Retrieved evidence:\n{context}"
+                    ),
+                },
+            ],
+            options={"temperature": 0, "num_predict": 30},
+        )
+        verdict = response["message"]["content"]
+        verdict = re.sub(r"^```(?:json)?\s*|\s*```$", "", verdict.strip(), flags=re.IGNORECASE)
+        try:
+            parsed = json.loads(verdict)
+            return parsed.get("sufficient") is True
+        except json.JSONDecodeError:
+            match = re.search(r'["\']sufficient["\']\s*:\s*(true|false)', verdict, re.IGNORECASE)
+            if match:
+                return match.group(1).lower() == "true"
+            return bool(re.fullmatch(r"true", verdict, re.IGNORECASE))
+    except (KeyError, TypeError, ValueError, ollama.ResponseError):
+        return False
 
 
 def remove_unwanted_closing_content(answer: str) -> str:
@@ -38,7 +113,6 @@ def remove_unwanted_closing_content(answer: str) -> str:
 
 
 def generate_answer(question: str, top_k: int = 5, table_name: str | None = None) -> dict:
-    logger.info("Received RAG question")
 
     # 1. Retrieve relevant chunks
     results = search(query=question, top_k=top_k, table_name=table_name)
@@ -72,13 +146,18 @@ def generate_answer(question: str, top_k: int = 5, table_name: str | None = None
         unique_results.append(result)
 
     if not unique_results:
-        return {
-            "answer": (
-                "I could not find enough relevant information "
-                "in the provided documentation to answer this accurately."
-            ),
-            "sources": [],
-        }
+        return {"answer": INSUFFICIENT_ANSWER, "sources": []}
+
+    relevant_results = []
+    for result in unique_results:
+        distance = result_value(result, "distance")
+        if distance is None or distance <= MAX_RELEVANT_DISTANCE:
+            relevant_results.append(result)
+
+    if not relevant_results:
+        return {"answer": INSUFFICIENT_ANSWER, "sources": []}
+
+    unique_results = relevant_results
 
     # 3. Build context with explicit source identifiers
     context_parts = []
@@ -104,6 +183,22 @@ def generate_answer(question: str, top_k: int = 5, table_name: str | None = None
         )
 
     context = "\n\n---\n\n".join(context_parts)
+
+    evidence_contents = [
+        (result_value(result, "content") or "").strip()
+        for result in unique_results
+    ]
+    if is_settlement_period_question(question) and not has_settlement_period_evidence(evidence_contents):
+        return {
+            "answer": (
+                "The provided documentation does not specify the standard "
+                "settlement period for bond purchases."
+            ),
+            "sources": [],
+        }
+
+    if not evidence_supports_answer(question, context):
+        return {"answer": INSUFFICIENT_ANSWER, "sources": []}
 
     # 4. Use an evidence-focused prompt
     system_prompt = """
@@ -153,6 +248,7 @@ ANSWER STYLE:
 18. Do not tell the user to consult, refer to, or read Knowledge_doc.md or other files.
 19. Do not add source lists, document names, or section names after the answer.
 
+
 PAYMENT-SUPPORT RULES:
 - Clearly distinguish reported, pending, failed, successful, and
   confirmed statuses only when the documentation supports them.
@@ -166,9 +262,19 @@ statement when useful, such as: "The order status is unconfirmed. [S1]"
 Never return a separate list or paragraph containing only source citations.
 Never write forms such as "[Cite S1]" or explain which source numbers belong to the
 answer in a separate final line.
-"""
 
-    logger.info("Generating answer using %d unique chunks", len(unique_results))
+ANSWER QUALITY RULES:
+- State missing information only once.
+- Do not repeat the conclusion in a separate paragraph.
+- Do not introduce possible causes or dependencies unless supported
+  by the retrieved documentation.
+- Do not confuse related concepts, such as bond maturity and
+  purchase settlement.
+- If the answer is unavailable, state that clearly and briefly.
+- Suggest a next step only when it is useful and appropriate.
+- Avoid ending every answer with "I could not find enough relevant
+  information..." when the limitation has already been explained.
+"""
 
     # 5. Generate answer
     response = ollama.chat(
@@ -193,7 +299,5 @@ answer in a separate final line.
         answer = answer[len("assistant:") :].strip()
 
     answer = remove_unwanted_closing_content(answer)
-
-    logger.info("RAG answer generated successfully")
 
     return {"answer": answer, "sources": sources}
